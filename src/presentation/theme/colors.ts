@@ -1,0 +1,17 @@
+export const AppColors = {
+  background: '#FFFDF4',
+  surfaceYellow: '#FFF3B0',
+  surfacePink: '#F8BBD0',
+  surfaceGreen: '#C8E6C9',
+  surfaceBlue: '#B3E5FC',
+  surfaceWhite: '#FFFFFF',
+  tabBackground: '#FFF8DE',
+  primary: '#F4A300',
+  primaryDark: '#D58800',
+  textPrimary: '#4A3C2A',
+  textSecondary: '#7C6A56',
+  textMuted: '#A08F7A',
+  success: '#2E9F5A',
+  info: '#2F9BC8',
+  white: '#FFFFFF',
+};
