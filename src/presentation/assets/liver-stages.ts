@@ -1,6 +1,6 @@
 /**
  * Metro icin statik require (goreli yol; @/ alias require icin sorun cikarabiliyor).
- * Evre 1 = en iyi skor, evre 5 = en dusuk.
+ * Evre 1 = en dusuk skor, evre 5 = en iyi.
  * Dosyalar: assets/liver/liver_stage_1.png … liver_stage_5.png
  */
 export const LIVER_STAGE_IMAGES = [

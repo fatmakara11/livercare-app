@@ -9,10 +9,42 @@ export const meRouter = Router();
 
 meRouter.use(authMiddleware);
 
+function todayDateKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+async function recalculateHealthForDate(
+  client: { query: (sql: string, params?: unknown[]) => Promise<{ rows: { total_points?: number }[] }> },
+  userId: number,
+  date: string,
+) {
+  const agg = await client.query(
+    'SELECT COALESCE(SUM(points), 0)::int AS total_points FROM tasks WHERE user_id = $1 AND task_date = $2::date',
+    [userId, date],
+  );
+
+  const totalPoints = agg.rows[0]?.total_points ?? 0;
+  const healthScore = Math.max(0, Math.min(totalPoints, 100));
+  const liverLevel = liverLevelFromScore(healthScore);
+
+  await client.query(
+    `INSERT INTO health_status (user_id, health_score, liver_level)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (user_id) DO UPDATE
+     SET health_score = EXCLUDED.health_score,
+         liver_level = EXCLUDED.liver_level,
+         updated_at = NOW()`,
+    [userId, healthScore, liverLevel],
+  );
+
+  return { healthScore, liverLevel };
+}
+
 meRouter.get('/', async (req, res) => {
   const userId = (req as AuthedRequest).userId!;
   const userResult = await pool.query('SELECT id, username FROM users WHERE id = $1', [userId]);
   const surgeryResult = await pool.query('SELECT surgery_date FROM surgery WHERE user_id = $1', [userId]);
+  await recalculateHealthForDate(pool, userId, todayDateKey());
   const healthResult = await pool.query(
     'SELECT health_score, liver_level, updated_at FROM health_status WHERE user_id = $1',
     [userId],
@@ -76,8 +108,8 @@ meRouter.put('/surgery-date', async (req, res) => {
 
     await client.query(
       `INSERT INTO health_status (user_id, health_score, liver_level)
-       VALUES ($1, 0, 5)
-       ON CONFLICT (user_id) DO UPDATE SET health_score = 0, liver_level = 5, updated_at = NOW()`,
+       VALUES ($1, 0, 1)
+       ON CONFLICT (user_id) DO UPDATE SET health_score = 0, liver_level = 1, updated_at = NOW()`,
       [userId],
     );
 
@@ -125,25 +157,7 @@ meRouter.post('/tasks/sync', async (req, res) => {
       );
     }
 
-    const agg = await client.query(
-      'SELECT COUNT(*)::int AS total, SUM(CASE WHEN completed THEN 1 ELSE 0 END)::int AS done FROM tasks WHERE user_id = $1',
-      [userId],
-    );
-
-    const total = agg.rows[0]?.total ?? 0;
-    const done = agg.rows[0]?.done ?? 0;
-    const healthScore = total === 0 ? 0 : Math.round((done / total) * 100);
-    const liverLevel = liverLevelFromScore(healthScore);
-
-    await client.query(
-      `INSERT INTO health_status (user_id, health_score, liver_level)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (user_id) DO UPDATE
-       SET health_score = EXCLUDED.health_score,
-           liver_level = EXCLUDED.liver_level,
-           updated_at = NOW()`,
-      [userId, healthScore, liverLevel],
-    );
+    const { healthScore, liverLevel } = await recalculateHealthForDate(client, userId, date);
 
     await client.query('COMMIT');
     res.json({ healthScore, liverLevel });

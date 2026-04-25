@@ -1,4 +1,4 @@
-const TASK_TITLES = ['Ilac al', 'Su ic', 'Egzersiz yap', 'Saglikli beslen'] as const;
+const TASK_TITLES = ['Ilac al', 'Su ic', 'Egzersiz yap', 'Saglikli beslen', 'Nefes egzersizi yap'] as const;
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
@@ -28,13 +28,13 @@ export function defaultTasksForDate(dateKey: string) {
 }
 
 export function liverLevelFromScore(healthScore: number) {
-  if (healthScore >= 80) return 1;
-  if (healthScore >= 60) return 2;
-  if (healthScore >= 40) return 3;
-  if (healthScore >= 20) return 4;
+  if (healthScore < 20) return 1;
+  if (healthScore < 40) return 2;
+  if (healthScore <= 60) return 3;
+  if (healthScore < 80) return 4;
   return 5;
 }
 
 export function pointsForTask(completed: boolean) {
-  return completed ? 10 : -2;
+  return completed ? 20 : 0;
 }

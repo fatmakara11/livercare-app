@@ -102,7 +102,7 @@ export default function LoginScreen() {
 
             <AppCard style={styles.card}>
               <Text style={styles.cardHead}>Hesabina gir</Text>
-              <Text style={styles.offlineNote}>Hesap ve veriler bu cihazda saklanir; internet veya sunucu gerekmez.</Text>
+              <Text style={styles.offlineNote}>Hesap ve gorev verileri sunucuda saklanir; internet baglantisi gereklidir.</Text>
               <Text style={styles.label}>Kullanici adi</Text>
               <TextInput
                 value={user}

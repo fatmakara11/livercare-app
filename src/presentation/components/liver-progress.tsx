@@ -12,11 +12,11 @@ type LiverProgressProps = {
 const STAGES = [1, 2, 3, 4, 5];
 
 const STAGE_CAPTIONS: Record<number, string> = {
-  1: 'Evre 1: Genel olarak iyi gidis; rutinini surdur.',
-  2: 'Evre 2: Iyi yonde; kucuk adimlarla devam.',
-  3: 'Evre 3: Orta duzey; gunluk gorevlere odaklan.',
-  4: 'Evre 4: Daha fazla destek gerekir; hedefleri kucult.',
-  5: 'Evre 5: Kritik dusuk skor; doktorunla iletisimi surdur.',
+  1: 'Evre 1: Baslangic seviyesi, bugun birkac gorevle ivme kazan.',
+  2: 'Evre 2: Ilerleme var, rutini korumaya devam et.',
+  3: 'Evre 3: Dengeli seviye, yaridan fazlasini tamamladin.',
+  4: 'Evre 4: Cok iyi gidis, hedefe cok yakinsin.',
+  5: 'Evre 5: En iyi seviye, bu duzeni surdur.',
 };
 
 export function LiverProgress({ level }: LiverProgressProps) {

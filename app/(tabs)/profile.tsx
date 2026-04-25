@@ -87,7 +87,7 @@ export default function ProfileTabScreen() {
           <Ionicons name="information-circle-outline" size={17} color={AppColors.textPrimary} />
           <Text style={styles.sectionTitle}>Bilgiler</Text>
         </View>
-        <Text style={styles.evreNote}>Evre 1 en iyi, Evre 5 en dusuk skor (uygulama ozeti).</Text>
+        <Text style={styles.evreNote}>Evre 1 en dusuk, Evre 5 en iyi skor seviyesini gosterir.</Text>
         <View style={styles.statRow}>
           <View style={styles.statLead}>
             <Ionicons name="leaf-outline" size={14} color={AppColors.textSecondary} />

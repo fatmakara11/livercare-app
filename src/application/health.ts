@@ -1,6 +1,6 @@
 import { DailyTask, TaskPlan } from '@/src/domain/types';
 
-const TASK_TITLES = ['Ilac al', 'Su ic', 'Egzersiz yap', 'Saglikli beslen'] as const;
+const TASK_TITLES = ['Ilac al', 'Su ic', 'Egzersiz yap', 'Saglikli beslen', 'Nefes egzersizi yap'] as const;
 
 export const TASK_HINTS: Record<string, { hint: string; target: string }> = {
   'Ilac al': {
@@ -18,6 +18,10 @@ export const TASK_HINTS: Record<string, { hint: string; target: string }> = {
   'Saglikli beslen': {
     hint: 'Islenmis yag ve asiri tuzdan kacin; protein ve sebzeyi dengele.',
     target: '3 ana ogun + hafif ara',
+  },
+  'Nefes egzersizi yap': {
+    hint: 'Rahat bir pozisyonda 5-10 dakika boyunca yavas ve derin nefes al.',
+    target: '5-10 dk nefes calismasi',
   },
 };
 
@@ -100,12 +104,12 @@ export function calculateHealthScore(taskPlan: TaskPlan) {
   return Math.round((completed / total) * 100);
 }
 
-/** 1 = en iyi (saglikli), 5 = en dusuk (kritik) — karaciger gorseli ile uyumlu */
+/** 1 = en dusuk, 5 = en iyi seviye */
 export function calculateLiverLevel(healthScore: number) {
-  if (healthScore >= 80) return 1;
-  if (healthScore >= 60) return 2;
-  if (healthScore >= 40) return 3;
-  if (healthScore >= 20) return 4;
+  if (healthScore < 20) return 1;
+  if (healthScore < 40) return 2;
+  if (healthScore <= 60) return 3;
+  if (healthScore < 80) return 4;
   return 5;
 }
 
@@ -134,7 +138,13 @@ export function calculateStreak(taskPlan: TaskPlan) {
 export function toggleTaskInPlan(taskPlan: TaskPlan, date: string, taskId: string): TaskPlan {
   const dayTasks = taskPlan[date] ?? [];
   const updatedTasks: DailyTask[] = dayTasks.map((task) =>
-    task.id === taskId ? { ...task, completed: !task.completed } : task,
+    task.id === taskId
+      ? {
+          ...task,
+          completed: !task.completed,
+          points: task.completed ? 0 : 20,
+        }
+      : task,
   );
 
   return {
@@ -144,9 +154,9 @@ export function toggleTaskInPlan(taskPlan: TaskPlan, date: string, taskId: strin
 }
 
 export function getMotivationText(healthScore: number) {
-  if (healthScore >= 80) return 'Muhteşem ilerliyorsun. Vucudun guclenmeye devam ediyor.';
-  if (healthScore >= 60) return 'Harika gidiyorsun. Bu duzeni koru.';
-  if (healthScore >= 40) return 'Iyi bir baslangic yaptin. Kucuk adimlar buyuk etki yaratir.';
-  if (healthScore >= 20) return 'Yolunda gidiyorsun. Birkac gorev daha tamamla.';
-  return 'Bugun bir gorevle basla, her adim cok degerli.';
+  if (healthScore > 80) return 'Mukemmel! Bugunku gorevleri istikrarla surduruyorsun.';
+  if (healthScore > 60) return 'Cok iyi gidiyorsun. Bir gorev daha seni ust seviyeye tasir.';
+  if (healthScore > 40) return 'Dengeli bir ilerleme var. Plani bozmadan devam et.';
+  if (healthScore > 20) return 'Iyi bir adim attin. Bugun iki gorev daha tamamlamayi dene.';
+  return 'Bugune bir gorevle basla; puanlar hizla yukselecek.';
 }

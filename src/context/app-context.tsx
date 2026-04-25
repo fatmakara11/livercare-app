@@ -5,29 +5,44 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 
 import {
-  calculateHealthScore,
-  calculateLiverLevel,
   calculateStreak,
-  countAllTasks,
-  countCompletedTasks,
-  generate30DayPlan,
   getMotivationText,
   mergeTaskMetadata,
   toggleTaskInPlan,
 } from '@/src/application/health';
 import { AppState } from '@/src/domain/types';
-import { clearAuthSession, loadAuthSession, LOCAL_SESSION_TOKEN, saveAuthSession } from '@/src/infrastructure/auth-storage';
-import {
-  loadLocalProfile,
-  registerLocalAccount,
-  saveLocalProfile,
-  verifyLocalLogin,
-} from '@/src/infrastructure/local-auth-store';
+import { clearAuthSession, loadAuthSession, saveAuthSession } from '@/src/infrastructure/auth-storage';
+import { apiJson } from '@/src/infrastructure/api';
+import { dayTasksPayload, rowsToTaskPlan } from '@/src/infrastructure/task-map';
 import { scheduleDailyReminders } from '@/src/notifications/reminders';
+
+type AuthResponse = {
+  token: string;
+  user: {
+    id: number;
+    username: string;
+  };
+};
+
+type MeResponse = {
+  user: { id: number; username: string } | null;
+  surgeryDate: string | null;
+  health: { health_score: number; liver_level: number } | null;
+};
+
+type TasksResponse = {
+  tasks: Array<{ date: string; title: string; completed: boolean; points?: number }>;
+};
+
+type SyncResponse = {
+  healthScore: number;
+  liverLevel: number;
+};
 
 type AppContextValue = AppState & {
   authToken: string | null;
@@ -37,7 +52,7 @@ type AppContextValue = AppState & {
   register: (username: string, password: string) => Promise<{ hasSurgery: boolean }>;
   logout: () => Promise<void>;
   saveSurgeryDate: (date: string) => Promise<void>;
-  toggleTask: (date: string, taskId: string) => void;
+  toggleTask: (date: string, taskId: string) => Promise<void>;
   motivationText: string;
   completedTasks: number;
   totalTasks: number;
@@ -49,54 +64,62 @@ const AppContext = createContext<AppContextValue | undefined>(undefined);
 export function AppProvider({ children }: PropsWithChildren) {
   const [username, setUsername] = useState('');
   const [authToken, setAuthToken] = useState<string | null>(null);
-  const [userId] = useState<number | null>(null);
+  const [userId, setUserId] = useState<number | null>(null);
   const [surgeryDate, setSurgeryDate] = useState<string | null>(null);
   const [taskPlan, setTaskPlan] = useState<AppState['taskPlan']>({});
+  const [healthScore, setHealthScore] = useState(0);
+  const [liverLevel, setLiverLevel] = useState(1);
   const [bootstrapped, setBootstrapped] = useState(false);
+  const dayRef = useRef(new Date().toISOString().slice(0, 10));
 
-  const healthScore = useMemo(() => calculateHealthScore(taskPlan), [taskPlan]);
-  const liverLevel = useMemo(() => calculateLiverLevel(healthScore), [healthScore]);
-  const completedTasks = useMemo(() => countCompletedTasks(taskPlan), [taskPlan]);
-  const totalTasks = useMemo(() => countAllTasks(taskPlan), [taskPlan]);
+  const completedTasks = useMemo(
+    () => Object.values(taskPlan).flat().filter((task) => task.completed).length,
+    [taskPlan],
+  );
+  const totalTasks = useMemo(() => Object.values(taskPlan).flat().length, [taskPlan]);
   const motivationText = useMemo(() => getMotivationText(healthScore), [healthScore]);
   const streak = useMemo(() => calculateStreak(taskPlan), [taskPlan]);
+
+  const loadRemoteState = useCallback(
+    async (token: string) => {
+      const [me, tasks] = await Promise.all([
+        apiJson<MeResponse>('/me', { token }),
+        apiJson<TasksResponse>('/me/tasks', { token }),
+      ]);
+      const nextPlan = mergeTaskMetadata(rowsToTaskPlan(tasks.tasks));
+      setTaskPlan(nextPlan);
+      setUserId(me.user?.id ?? null);
+      setUsername(me.user?.username ?? '');
+      setSurgeryDate(me.surgeryDate ?? null);
+      setHealthScore(me.health?.health_score ?? 0);
+      setLiverLevel(me.health?.liver_level ?? 1);
+      return { hasSurgery: Boolean(me.surgeryDate) };
+    },
+    [],
+  );
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const { token, username: storedName } = await loadAuthSession();
-        if (!token || !storedName) {
+        const { token } = await loadAuthSession();
+        if (!token) {
           if (!cancelled) setBootstrapped(true);
           return;
         }
-        if (token !== LOCAL_SESSION_TOKEN) {
-          await clearAuthSession();
-          if (!cancelled) setBootstrapped(true);
-          return;
-        }
-        if (cancelled) return;
+
         setAuthToken(token);
-        setUsername(storedName);
-        const profile = await loadLocalProfile(storedName);
-        if (cancelled) return;
-        if (profile.surgeryDate) {
-          const dateString = String(profile.surgeryDate).slice(0, 10);
-          setSurgeryDate(dateString);
-          if (profile.taskPlan && Object.keys(profile.taskPlan).length > 0) {
-            setTaskPlan(mergeTaskMetadata(profile.taskPlan));
-          } else {
-            setTaskPlan(generate30DayPlan(dateString));
-          }
-        } else {
-          setSurgeryDate(null);
-          setTaskPlan({});
-        }
+        await loadRemoteState(token);
       } catch {
         await clearAuthSession();
         if (!cancelled) {
           setAuthToken(null);
           setUsername('');
+          setUserId(null);
+          setSurgeryDate(null);
+          setTaskPlan({});
+          setHealthScore(0);
+          setLiverLevel(1);
         }
       } finally {
         if (!cancelled) setBootstrapped(true);
@@ -108,67 +131,94 @@ export function AppProvider({ children }: PropsWithChildren) {
   }, []);
 
   useEffect(() => {
-    if (!bootstrapped || !username || authToken !== LOCAL_SESSION_TOKEN) return;
-    const id = setTimeout(() => {
-      void saveLocalProfile(username, { surgeryDate, taskPlan });
-    }, 450);
-    return () => clearTimeout(id);
-  }, [bootstrapped, authToken, username, surgeryDate, taskPlan]);
-
-  useEffect(() => {
     if (!bootstrapped) return;
     void scheduleDailyReminders();
   }, [bootstrapped]);
 
-  const saveSurgeryDate = useCallback(async (date: string) => {
-    setSurgeryDate(date);
-    setTaskPlan(generate30DayPlan(date));
-  }, []);
-
-  const toggleTask = useCallback((date: string, taskId: string) => {
-    setTaskPlan((previousPlan) => toggleTaskInPlan(previousPlan, date, taskId));
-  }, []);
-
-  const login = useCallback(async (user: string, pass: string) => {
-    const name = user.trim();
-    const ok = await verifyLocalLogin(name, pass);
-    if (!ok) throw new Error('Kullanici adi veya sifre hatali');
-    await saveAuthSession(LOCAL_SESSION_TOKEN, name);
-    setAuthToken(LOCAL_SESSION_TOKEN);
-    setUsername(name);
-    const profile = await loadLocalProfile(name);
-    if (profile.surgeryDate) {
-      const dateString = String(profile.surgeryDate).slice(0, 10);
-      setSurgeryDate(dateString);
-      if (profile.taskPlan && Object.keys(profile.taskPlan).length > 0) {
-        setTaskPlan(mergeTaskMetadata(profile.taskPlan));
-      } else {
-        setTaskPlan(generate30DayPlan(dateString));
+  useEffect(() => {
+    if (!authToken) return;
+    const timer = setInterval(() => {
+      const nowDay = new Date().toISOString().slice(0, 10);
+      if (nowDay !== dayRef.current) {
+        dayRef.current = nowDay;
+        void loadRemoteState(authToken);
       }
-      return { hasSurgery: true };
-    }
-    setSurgeryDate(null);
-    setTaskPlan({});
-    return { hasSurgery: false };
-  }, []);
+    }, 60_000);
+    return () => clearInterval(timer);
+  }, [authToken, loadRemoteState]);
 
-  const register = useCallback(async (user: string, pass: string) => {
-    const name = user.trim();
-    await registerLocalAccount(name, pass);
-    await saveAuthSession(LOCAL_SESSION_TOKEN, name);
-    setAuthToken(LOCAL_SESSION_TOKEN);
-    setUsername(name);
-    setSurgeryDate(null);
-    setTaskPlan({});
-    return { hasSurgery: false };
-  }, []);
+  const saveSurgeryDate = useCallback(
+    async (date: string) => {
+      if (!authToken) throw new Error('Oturum bulunamadi');
+      await apiJson('/me/surgery-date', {
+        method: 'PUT',
+        token: authToken,
+        body: { surgeryDate: date },
+      });
+      await loadRemoteState(authToken);
+    },
+    [authToken, loadRemoteState],
+  );
+
+  const toggleTask = useCallback(
+    async (date: string, taskId: string) => {
+      if (!authToken) throw new Error('Oturum bulunamadi');
+      const nextPlan = toggleTaskInPlan(taskPlan, date, taskId);
+      setTaskPlan(nextPlan);
+      const dayTasks = nextPlan[date] ?? [];
+      const result = await apiJson<SyncResponse>('/me/tasks/sync', {
+        method: 'POST',
+        token: authToken,
+        body: {
+          date,
+          tasks: dayTasksPayload(dayTasks),
+        },
+      });
+      setHealthScore(result.healthScore);
+      setLiverLevel(result.liverLevel);
+    },
+    [authToken, taskPlan],
+  );
+
+  const login = useCallback(
+    async (user: string, pass: string) => {
+      const result = await apiJson<AuthResponse>('/auth/login', {
+        method: 'POST',
+        body: { username: user.trim(), password: pass },
+      });
+      await saveAuthSession(result.token, result.user.username);
+      setAuthToken(result.token);
+      setUsername(result.user.username);
+      setUserId(result.user.id);
+      return loadRemoteState(result.token);
+    },
+    [loadRemoteState],
+  );
+
+  const register = useCallback(
+    async (user: string, pass: string) => {
+      const result = await apiJson<AuthResponse>('/auth/register', {
+        method: 'POST',
+        body: { username: user.trim(), password: pass },
+      });
+      await saveAuthSession(result.token, result.user.username);
+      setAuthToken(result.token);
+      setUsername(result.user.username);
+      setUserId(result.user.id);
+      return loadRemoteState(result.token);
+    },
+    [loadRemoteState],
+  );
 
   const logout = useCallback(async () => {
     await clearAuthSession();
     setAuthToken(null);
     setUsername('');
+    setUserId(null);
     setSurgeryDate(null);
     setTaskPlan({});
+    setHealthScore(0);
+    setLiverLevel(1);
   }, []);
 
   const value: AppContextValue = {

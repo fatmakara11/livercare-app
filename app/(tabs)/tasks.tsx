@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 
 import { useAppContext } from '@/src/context/app-context';
 import { AppCard } from '@/src/presentation/components/app-card';
@@ -13,6 +14,7 @@ const TASK_EMOJIS: Record<string, string> = {
   'Su ic': '💧',
   'Egzersiz yap': '🏃',
   'Saglikli beslen': '🥗',
+  'Nefes egzersizi yap': '🫁',
 };
 
 function findTodayOrFirstDate(dates: string[]) {
@@ -25,6 +27,12 @@ export default function TasksTabScreen() {
   const { taskPlan, toggleTask, motivationText } = useAppContext();
   const dates = useMemo(() => Object.keys(taskPlan).sort(), [taskPlan]);
   const [selectedDate, setSelectedDate] = useState<string | null>(() => findTodayOrFirstDate(dates));
+
+  useFocusEffect(
+    useCallback(() => {
+      setSelectedDate(findTodayOrFirstDate(dates));
+    }, [dates]),
+  );
   useEffect(() => {
     if (!dates.length) {
       setSelectedDate(null);
@@ -61,7 +69,7 @@ export default function TasksTabScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <AppCard style={[styles.headerCard, { backgroundColor: AppColors.surfaceBlue }]}>
         <View style={styles.headerRow}>
           <Ionicons name="calendar-outline" size={18} color={AppColors.textPrimary} />
@@ -102,7 +110,9 @@ export default function TasksTabScreen() {
             title={task.title}
             emoji={TASK_EMOJIS[task.title] ?? '✅'}
             completed={task.completed}
-            onToggle={() => toggleTask(selectedDate!, task.id)}
+            onToggle={() => {
+              void toggleTask(selectedDate!, task.id);
+            }}
             hint={task.hint}
             target={task.target}
             points={task.points}
@@ -117,7 +127,7 @@ export default function TasksTabScreen() {
         </View>
         <Text style={styles.footerText}>{motivationText}</Text>
       </AppCard>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -125,8 +135,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: AppColors.background,
+  },
+  content: {
     padding: 18,
     gap: 12,
+    paddingBottom: 32,
   },
   emptyContainer: {
     flex: 1,
