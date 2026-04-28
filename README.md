@@ -48,6 +48,12 @@ npm install
 npx expo start
 ```
 
+Development build (gercek GLB 3D):
+
+```bash
+npm run start:dev-client
+```
+
 Expo ile gelen paketleri (`expo-secure-store`, `@react-native-async-storage/async-storage` vb.) guncellerken **`npm install paket@latest` yerine** `npx expo install paket` kullan; aksi halde SDK ile uyumsuz surum olusabilir.
 
 Opsiyonel:
@@ -63,7 +69,7 @@ npm run server:dev
 Mobil uygulama su an **uzak API kullanmaz**. Deney veya gelecek senkron icin yerelde API calistirmak istersen: `server/.env.example` dosyasini `server/.env` yap, `DATABASE_URL` ve `JWT_SECRET` doldur, `server/sql/init.sql` ile semayi yukle, `npm run server:dev` ile baslat.
 
 ### Karaciger gorselleri
-Karaciger evre gorselleri `assets/liver/liver_stage_1.png` … `liver_stage_5.png` olarak bulunur; ayrintilar icin `assets/liver/README.md`.
+Expo Go akisinda karaciger karti `assets/liver/liver_stage_1.png` ... `liver_stage_5.png` fallback gorsellerini kullanir. Development build profilinde `_optimized.glb` dosyalari gercek 3D olarak acilir; ayrintilar icin `assets/liver/README.md` ve `eas.json`.
 
 ## 7. Proje Kapsami
 ### Dahil Olanlar (Mevcut Faz)

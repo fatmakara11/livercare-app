@@ -43,8 +43,10 @@
         }
       ],
       "expo-secure-store",
+      "expo-dev-client",
       "@react-native-community/datetimepicker",
-      "expo-notifications"
+      "expo-notifications",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,

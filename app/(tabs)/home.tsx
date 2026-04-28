@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useAppContext } from '@/src/context/app-context';
@@ -11,7 +11,11 @@ export default function HomeTabScreen() {
   const { username, healthScore, liverLevel, motivationText } = useAppContext();
 
   return (
-    <View style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.contentContainer}
+      showsVerticalScrollIndicator={false}
+    >
       <View style={styles.hero}>
         <Text style={styles.greeting}>Merhaba, {username || 'Fatma'} 👋</Text>
         <Text style={styles.subText}>{motivationText}</Text>
@@ -42,14 +46,16 @@ export default function HomeTabScreen() {
         </View>
         <Text style={styles.tipText}>Iyi gidiyorsun! Her gorev seni daha guclu yapiyor.</Text>
       </AppCard>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
     backgroundColor: AppColors.background,
+  },
+  contentContainer: {
+    flexGrow: 1,
     padding: 18,
     gap: 12,
   },

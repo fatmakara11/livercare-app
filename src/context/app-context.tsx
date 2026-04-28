@@ -10,14 +10,28 @@ import {
 } from 'react';
 
 import {
+  calculateHealthScore,
+  calculateLiverLevel,
   calculateStreak,
+  generate30DayPlan,
   getMotivationText,
   mergeTaskMetadata,
   toggleTaskInPlan,
 } from '@/src/application/health';
 import { AppState } from '@/src/domain/types';
-import { clearAuthSession, loadAuthSession, saveAuthSession } from '@/src/infrastructure/auth-storage';
+import {
+  clearAuthSession,
+  loadAuthSession,
+  LOCAL_SESSION_TOKEN,
+  saveAuthSession,
+} from '@/src/infrastructure/auth-storage';
 import { apiJson } from '@/src/infrastructure/api';
+import {
+  loadLocalProfile,
+  registerLocalAccount,
+  saveLocalProfile,
+  verifyLocalLogin,
+} from '@/src/infrastructure/local-auth-store';
 import { dayTasksPayload, rowsToTaskPlan } from '@/src/infrastructure/task-map';
 import { scheduleDailyReminders } from '@/src/notifications/reminders';
 
@@ -36,7 +50,7 @@ type MeResponse = {
 };
 
 type TasksResponse = {
-  tasks: Array<{ date: string; title: string; completed: boolean; points?: number }>;
+  tasks: { date: string; title: string; completed: boolean; points?: number }[];
 };
 
 type SyncResponse = {
@@ -98,18 +112,46 @@ export function AppProvider({ children }: PropsWithChildren) {
     [],
   );
 
+  const applyLocalProfile = useCallback(async (name: string) => {
+    const profile = await loadLocalProfile(name);
+    const nextPlan = mergeTaskMetadata(profile.taskPlan);
+    const nextHealthScore = calculateHealthScore(nextPlan);
+    const nextLiverLevel = calculateLiverLevel(nextHealthScore);
+
+    setUsername(name);
+    setUserId(null);
+    setSurgeryDate(profile.surgeryDate);
+    setTaskPlan(nextPlan);
+    setHealthScore(nextHealthScore);
+    setLiverLevel(nextLiverLevel);
+
+    return { hasSurgery: Boolean(profile.surgeryDate) };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const { token } = await loadAuthSession();
+        const { token, username: savedUsername } = await loadAuthSession();
         if (!token) {
           if (!cancelled) setBootstrapped(true);
           return;
         }
 
         setAuthToken(token);
-        await loadRemoteState(token);
+        if (token === LOCAL_SESSION_TOKEN) {
+          if (!savedUsername) {
+            await clearAuthSession();
+            if (!cancelled) {
+              setAuthToken(null);
+              setUsername('');
+            }
+            return;
+          }
+          await applyLocalProfile(savedUsername);
+        } else {
+          await loadRemoteState(token);
+        }
       } catch {
         await clearAuthSession();
         if (!cancelled) {
@@ -128,7 +170,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [applyLocalProfile, loadRemoteState]);
 
   useEffect(() => {
     if (!bootstrapped) return;
@@ -136,7 +178,7 @@ export function AppProvider({ children }: PropsWithChildren) {
   }, [bootstrapped]);
 
   useEffect(() => {
-    if (!authToken) return;
+    if (!authToken || authToken === LOCAL_SESSION_TOKEN) return;
     const timer = setInterval(() => {
       const nowDay = new Date().toISOString().slice(0, 10);
       if (nowDay !== dayRef.current) {
@@ -150,6 +192,18 @@ export function AppProvider({ children }: PropsWithChildren) {
   const saveSurgeryDate = useCallback(
     async (date: string) => {
       if (!authToken) throw new Error('Oturum bulunamadi');
+      if (authToken === LOCAL_SESSION_TOKEN) {
+        if (!username) throw new Error('Yerel profil bulunamadi');
+        const nextPlan = mergeTaskMetadata(generate30DayPlan(date));
+        const nextHealthScore = calculateHealthScore(nextPlan);
+        const nextLiverLevel = calculateLiverLevel(nextHealthScore);
+        setSurgeryDate(date);
+        setTaskPlan(nextPlan);
+        setHealthScore(nextHealthScore);
+        setLiverLevel(nextLiverLevel);
+        await saveLocalProfile(username, { surgeryDate: date, taskPlan: nextPlan });
+        return;
+      }
       await apiJson('/me/surgery-date', {
         method: 'PUT',
         token: authToken,
@@ -157,7 +211,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       });
       await loadRemoteState(authToken);
     },
-    [authToken, loadRemoteState],
+    [authToken, loadRemoteState, username],
   );
 
   const toggleTask = useCallback(
@@ -165,6 +219,15 @@ export function AppProvider({ children }: PropsWithChildren) {
       if (!authToken) throw new Error('Oturum bulunamadi');
       const nextPlan = toggleTaskInPlan(taskPlan, date, taskId);
       setTaskPlan(nextPlan);
+      if (authToken === LOCAL_SESSION_TOKEN) {
+        if (!username) throw new Error('Yerel profil bulunamadi');
+        const nextHealthScore = calculateHealthScore(nextPlan);
+        const nextLiverLevel = calculateLiverLevel(nextHealthScore);
+        setHealthScore(nextHealthScore);
+        setLiverLevel(nextLiverLevel);
+        await saveLocalProfile(username, { surgeryDate, taskPlan: nextPlan });
+        return;
+      }
       const dayTasks = nextPlan[date] ?? [];
       const result = await apiJson<SyncResponse>('/me/tasks/sync', {
         method: 'POST',
@@ -177,37 +240,62 @@ export function AppProvider({ children }: PropsWithChildren) {
       setHealthScore(result.healthScore);
       setLiverLevel(result.liverLevel);
     },
-    [authToken, taskPlan],
+    [authToken, surgeryDate, taskPlan, username],
   );
 
   const login = useCallback(
     async (user: string, pass: string) => {
-      const result = await apiJson<AuthResponse>('/auth/login', {
-        method: 'POST',
-        body: { username: user.trim(), password: pass },
-      });
-      await saveAuthSession(result.token, result.user.username);
-      setAuthToken(result.token);
-      setUsername(result.user.username);
-      setUserId(result.user.id);
-      return loadRemoteState(result.token);
+      const normalizedUsername = user.trim();
+      try {
+        const result = await apiJson<AuthResponse>('/auth/login', {
+          method: 'POST',
+          body: { username: normalizedUsername, password: pass },
+        });
+        await saveAuthSession(result.token, result.user.username);
+        setAuthToken(result.token);
+        setUsername(result.user.username);
+        setUserId(result.user.id);
+        return loadRemoteState(result.token);
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes('Sunucuya ulasilamadi')) {
+          throw error;
+        }
+        const ok = await verifyLocalLogin(normalizedUsername, pass);
+        if (!ok) {
+          throw new Error('Sunucu kapali ve yerel hesap bulunamadi. Once Kayit ol ile yerel hesap ac.');
+        }
+        await saveAuthSession(LOCAL_SESSION_TOKEN, normalizedUsername);
+        setAuthToken(LOCAL_SESSION_TOKEN);
+        return applyLocalProfile(normalizedUsername);
+      }
     },
-    [loadRemoteState],
+    [applyLocalProfile, loadRemoteState],
   );
 
   const register = useCallback(
     async (user: string, pass: string) => {
-      const result = await apiJson<AuthResponse>('/auth/register', {
-        method: 'POST',
-        body: { username: user.trim(), password: pass },
-      });
-      await saveAuthSession(result.token, result.user.username);
-      setAuthToken(result.token);
-      setUsername(result.user.username);
-      setUserId(result.user.id);
-      return loadRemoteState(result.token);
+      const normalizedUsername = user.trim();
+      try {
+        const result = await apiJson<AuthResponse>('/auth/register', {
+          method: 'POST',
+          body: { username: normalizedUsername, password: pass },
+        });
+        await saveAuthSession(result.token, result.user.username);
+        setAuthToken(result.token);
+        setUsername(result.user.username);
+        setUserId(result.user.id);
+        return loadRemoteState(result.token);
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes('Sunucuya ulasilamadi')) {
+          throw error;
+        }
+        await registerLocalAccount(normalizedUsername, pass);
+        await saveAuthSession(LOCAL_SESSION_TOKEN, normalizedUsername);
+        setAuthToken(LOCAL_SESSION_TOKEN);
+        return applyLocalProfile(normalizedUsername);
+      }
     },
-    [loadRemoteState],
+    [applyLocalProfile, loadRemoteState],
   );
 
   const logout = useCallback(async () => {

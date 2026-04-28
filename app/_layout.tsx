@@ -3,8 +3,11 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 
+import { ensureThreeNativePolyfills } from '@/src/infrastructure/three-polyfills';
 import { AppProvider } from '@/src/context/app-context';
 import { AppColors } from '@/src/presentation/theme/colors';
+
+ensureThreeNativePolyfills();
 
 export default function RootLayout() {
   return (
